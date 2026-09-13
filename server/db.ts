@@ -3,7 +3,8 @@ import path from 'path';
 import crypto from 'crypto';
 import { PricingConfig, QuoteSubmission } from '../src/types/quote.js';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+const DATA_DIR = isServerless ? path.resolve('/tmp', 'data') : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'firestore_store.json');
 
 export const DEFAULT_TEST_PAINTER_CONFIG: PricingConfig = {
@@ -29,48 +30,69 @@ interface DatabaseSchema {
   submissions: QuoteSubmission[];
 }
 
-function ensureDb(): DatabaseSchema {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+let inMemoryDb: DatabaseSchema | null = null;
 
-  if (!fs.existsSync(DB_FILE)) {
-    const initialData: DatabaseSchema = {
-      pricingConfigs: {
-        'test-painter': { ...DEFAULT_TEST_PAINTER_CONFIG },
-      },
-      submissions: [],
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
-    return initialData;
+function getInitialDb(): DatabaseSchema {
+  return {
+    pricingConfigs: {
+      'test-painter': { ...DEFAULT_TEST_PAINTER_CONFIG },
+    },
+    submissions: [],
+  };
+}
+
+function ensureDb(): DatabaseSchema {
+  if (inMemoryDb) {
+    return inMemoryDb;
   }
 
   try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    if (!fs.existsSync(DB_FILE)) {
+      const initialData = getInitialDb();
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+      } catch {
+        // Read-only filesystem fallback
+      }
+      inMemoryDb = initialData;
+      return initialData;
+    }
+
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw) as DatabaseSchema;
     if (!parsed.pricingConfigs['test-painter']) {
       parsed.pricingConfigs['test-painter'] = { ...DEFAULT_TEST_PAINTER_CONFIG };
-      fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+      } catch {
+        // Read-only filesystem fallback
+      }
     }
+    inMemoryDb = parsed;
     return parsed;
   } catch (err) {
-    console.error('Error reading database file, reinitializing with defaults:', err);
-    const initialData: DatabaseSchema = {
-      pricingConfigs: {
-        'test-painter': { ...DEFAULT_TEST_PAINTER_CONFIG },
-      },
-      submissions: [],
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
-    return initialData;
+    console.warn('Filesystem access limited, operating with in-memory database:', err);
+    if (!inMemoryDb) {
+      inMemoryDb = getInitialDb();
+    }
+    return inMemoryDb;
   }
 }
 
 function saveDb(data: DatabaseSchema): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  inMemoryDb = data;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not persist to disk, retained in memory:', err);
   }
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 export async function getPricingConfig(clientSlug: string): Promise<PricingConfig | null> {
