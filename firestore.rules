@@ -16,14 +16,23 @@ service cloud.firestore {
     // Submissions: can be created by inquiring customers, read only by authorized admin
     match /submissions/{submissionId} {
       allow create: if request.resource.data.keys().hasAll([
-        'clientSlug', 'service', 'sqft', 'ceiling', 'doors', 'coats',
-        'fullName', 'phone', 'email', 'exactCalculatedQuote', 'displayLow',
-        'displayHigh', 'createdAt'
+        'clientSlug', 'service', 'fullName', 'phone', 'email', 'createdAt'
       ]) &&
-      request.resource.data.sqft is number && request.resource.data.sqft > 0 &&
-      request.resource.data.doors is number && request.resource.data.doors >= 0 &&
-      (request.resource.data.coats == 1 || request.resource.data.coats == 2) &&
-      (request.resource.data.ceiling == 'standard' || request.resource.data.ceiling == 'high') &&
+      (
+        (
+          request.resource.data.service == 'interior' &&
+          request.resource.data.sqft is number && request.resource.data.sqft > 0 &&
+          request.resource.data.doors is number && request.resource.data.doors >= 0 &&
+          (request.resource.data.coats == 1 || request.resource.data.coats == 2) &&
+          (request.resource.data.ceiling == 'standard' || request.resource.data.ceiling == 'high')
+        ) ||
+        (
+          request.resource.data.service == 'exterior' &&
+          (request.resource.data.home_stories == 1 || request.resource.data.home_stories == 2) &&
+          request.resource.data.home_sqft is number && request.resource.data.home_sqft > 0 &&
+          request.resource.data.siding_type is string
+        )
+      ) &&
       request.resource.data.fullName is string && request.resource.data.fullName.size() <= 128 &&
       request.resource.data.email is string && request.resource.data.email.size() <= 128 &&
       request.resource.data.phone is string && request.resource.data.phone.size() <= 32;

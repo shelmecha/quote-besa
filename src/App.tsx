@@ -2,45 +2,74 @@ import React, { useState, useRef } from 'react';
 import { QuoteHeader } from './components/QuoteHeader';
 import { ServiceSelector } from './components/ServiceSelector';
 import { ProjectDetailsForm } from './components/ProjectDetailsForm';
+import { ExteriorDetailsForm } from './components/ExteriorDetailsForm';
 import { ContactForm } from './components/ContactForm';
 import { QuoteResultCard } from './components/QuoteResultCard';
-import { ServiceType, CeilingHeight, CoatCount, QuoteCalculationResult, QuoteSubmission } from './types/quote';
+import { ExteriorConfirmationCard } from './components/ExteriorConfirmationCard';
+import {
+  ServiceType,
+  CeilingHeight,
+  CoatCount,
+  HomeStories,
+  SidingType,
+  QuoteCalculationResult,
+  QuoteSubmission,
+} from './types/quote';
 import { ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  // Form State
+  // Service Selection
   const [service, setService] = useState<ServiceType>('interior');
+
+  // Interior Form State
   const [sqft, setSqft] = useState<number | ''>(486);
   const [ceiling, setCeiling] = useState<CeilingHeight>('standard');
   const [doors, setDoors] = useState<number | ''>(2);
   const [coats, setCoats] = useState<CoatCount>(2);
+
+  // Exterior Form State
+  const [homeStories, setHomeStories] = useState<HomeStories>(2);
+  const [homeSqft, setHomeSqft] = useState<number | ''>(2000);
+  const [sidingType, setSidingType] = useState<SidingType>('stucco');
+
+  // Contact Details State (Shared)
   const [fullName, setFullName] = useState('Jane Doe');
   const [phone, setPhone] = useState('(555) 234-5678');
   const [email, setEmail] = useState('jane@example.com');
 
-  // Calculation & Submission State
-  const [isCalculating, setIsCalculating] = useState(false);
+  // Processing & Error State
+  const [isProcessing, setIsProcessing] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Result State
   const [quoteResult, setQuoteResult] = useState<QuoteCalculationResult | null>(null);
   const [leadSavedNotice, setLeadSavedNotice] = useState<string | null>(null);
+  const [exteriorSubmission, setExteriorSubmission] = useState<QuoteSubmission | null>(null);
 
+  // Interior on-site inquiry follow-up
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submissionSuccess, setSubmissionSuccess] = useState<QuoteSubmission | null>(null);
 
   const resultContainerRef = useRef<HTMLDivElement>(null);
 
-  // Client-side quick validation before hitting server
+  // Service switcher: clears result cards and branch errors
+  const handleSelectService = (newService: ServiceType) => {
+    setService(newService);
+    setQuoteResult(null);
+    setExteriorSubmission(null);
+    setLeadSavedNotice(null);
+    setCalcError(null);
+    setSubmitError(null);
+    setFieldErrors({}); // Clear errors so hidden field errors never remain visible
+  };
+
+  // Client-side validation tailored to active service branch
   const validateForm = (): boolean => {
     const errs: Record<string, string> = {};
 
-    if (sqft === '' || Number(sqft) <= 0) {
-      errs.sqft = 'Enter an approximate wall area.';
-    }
-    if (doors === '' || Number(doors) < 0) {
-      errs.doors = 'Enter the number of doors.';
-    }
+    // Contact info (required for both branches)
     if (!fullName.trim()) {
       errs.fullName = 'Enter your full name.';
     }
@@ -52,12 +81,32 @@ export default function App() {
       errs.phone = 'Enter a valid phone number.';
     }
 
+    // Branch-specific validations
+    if (service === 'interior') {
+      if (sqft === '' || Number(sqft) <= 0) {
+        errs.sqft = 'Enter an approximate wall area.';
+      }
+      if (doors === '' || Number(doors) < 0) {
+        errs.doors = 'Enter the number of doors.';
+      }
+    } else if (service === 'exterior') {
+      if (!homeStories || (homeStories !== 1 && homeStories !== 2)) {
+        errs.home_stories = 'Please select home stories (1 or 2).';
+      }
+      if (homeSqft === '' || Number(homeSqft) <= 0) {
+        errs.home_sqft = 'Enter the approximate home size in sq ft.';
+      }
+      if (!sidingType) {
+        errs.siding_type = 'Please select a siding type.';
+      }
+    }
+
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  // Calculate quote
-  const handleCalculateQuote = async () => {
+  // Main Submit Action: Instant Quote (Interior) vs Custom Request (Exterior)
+  const handleSubmit = async () => {
     setCalcError(null);
     setSubmissionSuccess(null);
     setSubmitError(null);
@@ -68,21 +117,36 @@ export default function App() {
     }
 
     try {
-      setIsCalculating(true);
+      setIsProcessing(true);
+
+      const payload =
+        service === 'interior'
+          ? {
+              clientSlug: 'test-painter',
+              service: 'interior',
+              sqft: Number(sqft),
+              ceiling,
+              doors: Number(doors),
+              coats,
+              fullName: fullName.trim(),
+              phone: phone.trim(),
+              email: email.trim(),
+            }
+          : {
+              clientSlug: 'test-painter',
+              service: 'exterior',
+              home_stories: homeStories,
+              home_sqft: Number(homeSqft),
+              siding_type: sidingType,
+              fullName: fullName.trim(),
+              phone: phone.trim(),
+              email: email.trim(),
+            };
+
       const res = await fetch('/api/quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientSlug: 'test-painter',
-          service,
-          sqft: Number(sqft),
-          ceiling,
-          doors: Number(doors),
-          coats,
-          fullName: fullName.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -91,30 +155,39 @@ export default function App() {
         if (data.errors) {
           setFieldErrors(data.errors);
         } else {
-          setCalcError(data.error || 'Unable to calculate estimate. Please check your entries.');
+          setCalcError(data.error || 'Unable to process your request. Please check your entries.');
         }
         return;
       }
 
-      setQuoteResult(data.data);
-      if (data.leadSubmissionId) {
-        setLeadSavedNotice(data.leadSubmissionId);
+      if (service === 'interior') {
+        setQuoteResult(data.data);
+        setExteriorSubmission(null);
+        if (data.leadSubmissionId) {
+          setLeadSavedNotice(data.leadSubmissionId);
+        }
+      } else {
+        setExteriorSubmission(data.leadSubmission);
+        setQuoteResult(null);
       }
       setFieldErrors({});
 
-      // Smooth scroll down to result card
+      // Smooth scroll to result
       setTimeout(() => {
         resultContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }, 100);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unable to calculate estimate. Please check your connection.';
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Unable to process your request. Please check your connection.';
       setCalcError(msg);
     } finally {
-      setIsCalculating(false);
+      setIsProcessing(false);
     }
   };
 
-  // Perform final inquiry submission
+  // Interior on-site quote booking submission
   const handleFinalSubmit = async () => {
     if (!quoteResult) return;
 
@@ -127,7 +200,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientSlug: 'test-painter',
-          service,
+          service: 'interior',
           sqft: Number(sqft),
           ceiling,
           doors: Number(doors),
@@ -174,48 +247,65 @@ export default function App() {
             id="quote-calculator-form"
             onSubmit={(e) => {
               e.preventDefault();
-              handleCalculateQuote();
+              handleSubmit();
             }}
             className="space-y-6 pt-6"
           >
             {/* 1. What are you painting? */}
             <ServiceSelector
               selectedService={service}
-              onSelectService={(s) => {
-                setService(s);
-                setQuoteResult(null);
-                setLeadSavedNotice(null);
-              }}
+              onSelectService={handleSelectService}
             />
 
-            {/* 2. Tell us about the project */}
-            <ProjectDetailsForm
-              sqft={sqft}
-              onChangeSqft={(val) => {
-                setSqft(val);
-                setQuoteResult(null);
-                setLeadSavedNotice(null);
-              }}
-              ceiling={ceiling}
-              onChangeCeiling={(val) => {
-                setCeiling(val);
-                setQuoteResult(null);
-                setLeadSavedNotice(null);
-              }}
-              doors={doors}
-              onChangeDoors={(val) => {
-                setDoors(val);
-                setQuoteResult(null);
-                setLeadSavedNotice(null);
-              }}
-              coats={coats}
-              onChangeCoats={(val) => {
-                setCoats(val);
-                setQuoteResult(null);
-                setLeadSavedNotice(null);
-              }}
-              errors={fieldErrors}
-            />
+            {/* 2. Tell us about the project — Conditionally Rendered by Service */}
+            {service === 'interior' ? (
+              <ProjectDetailsForm
+                sqft={sqft}
+                onChangeSqft={(val) => {
+                  setSqft(val);
+                  setQuoteResult(null);
+                  setLeadSavedNotice(null);
+                }}
+                ceiling={ceiling}
+                onChangeCeiling={(val) => {
+                  setCeiling(val);
+                  setQuoteResult(null);
+                  setLeadSavedNotice(null);
+                }}
+                doors={doors}
+                onChangeDoors={(val) => {
+                  setDoors(val);
+                  setQuoteResult(null);
+                  setLeadSavedNotice(null);
+                }}
+                coats={coats}
+                onChangeCoats={(val) => {
+                  setCoats(val);
+                  setQuoteResult(null);
+                  setLeadSavedNotice(null);
+                }}
+                errors={fieldErrors}
+              />
+            ) : (
+              <ExteriorDetailsForm
+                homeStories={homeStories}
+                homeSqft={homeSqft}
+                sidingType={sidingType}
+                onChangeHomeStories={(val) => {
+                  setHomeStories(val);
+                  setExteriorSubmission(null);
+                }}
+                onChangeHomeSqft={(val) => {
+                  setHomeSqft(val);
+                  setExteriorSubmission(null);
+                }}
+                onChangeSidingType={(val) => {
+                  setSidingType(val);
+                  setExteriorSubmission(null);
+                }}
+                errors={fieldErrors}
+              />
+            )}
 
             {/* 3. Where should we send your estimate? */}
             <ContactForm
@@ -237,7 +327,7 @@ export default function App() {
               errors={fieldErrors}
             />
 
-            {/* Calculation Error Alert */}
+            {/* Error Alert */}
             {calcError && (
               <div
                 id="calculation-error-alert"
@@ -248,22 +338,30 @@ export default function App() {
               </div>
             )}
 
-            {/* Primary Action Button */}
+            {/* Primary Action Button — Conditional CTA Text & Loading */}
             <div className="pt-2">
               <button
                 type="submit"
                 id="btn-calculate-quote"
-                disabled={isCalculating}
+                disabled={isProcessing}
                 className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all bg-[#171717] hover:bg-[#262626] active:scale-[0.99] text-white cursor-pointer shadow-xs disabled:bg-[#98A2B3] disabled:cursor-not-allowed group"
               >
-                {isCalculating ? (
+                {isProcessing ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Calculating your estimate...</span>
+                    <span>
+                      {service === 'interior'
+                        ? 'Calculating your estimate...'
+                        : 'Sending your request...'}
+                    </span>
                   </>
                 ) : (
                   <>
-                    <span>Get My Estimate</span>
+                    <span>
+                      {service === 'interior'
+                        ? 'Get My Estimate'
+                        : 'Request Custom Estimate'}
+                    </span>
                     <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition-transform" />
                   </>
                 )}
@@ -271,8 +369,8 @@ export default function App() {
             </div>
           </form>
 
-          {/* Quote Result Card */}
-          {quoteResult && (
+          {/* Results: Interior Quote Result Card */}
+          {service === 'interior' && quoteResult && (
             <div ref={resultContainerRef}>
               <QuoteResultCard
                 quote={quoteResult}
@@ -281,6 +379,19 @@ export default function App() {
                 submissionSuccess={submissionSuccess}
                 submitError={submitError}
                 leadSavedNotice={leadSavedNotice}
+              />
+            </div>
+          )}
+
+          {/* Results: Exterior Confirmation Card (No Pricing) */}
+          {service === 'exterior' && exteriorSubmission && (
+            <div ref={resultContainerRef}>
+              <ExteriorConfirmationCard
+                submission={exteriorSubmission}
+                onReset={() => {
+                  setExteriorSubmission(null);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
               />
             </div>
           )}

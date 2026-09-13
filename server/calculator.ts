@@ -1,27 +1,32 @@
 import { QuoteInput, PricingConfig, QuoteCalculationResult } from '../src/types/quote.js';
 
 export function calculateQuote(input: QuoteInput, config: PricingConfig): QuoteCalculationResult {
-  if (input.sqft <= 0) {
+  const sqft = input.sqft ?? 0;
+  const doors = input.doors ?? 0;
+  const coats = input.coats;
+  const ceiling = input.ceiling;
+
+  if (sqft <= 0) {
     throw new Error('Square footage must be greater than 0');
   }
-  if (input.doors < 0) {
+  if (doors < 0) {
     throw new Error('Doors cannot be negative');
   }
-  if (input.coats !== 1 && input.coats !== 2) {
+  if (coats !== 1 && coats !== 2) {
     throw new Error('Coats must be either 1 or 2');
   }
-  if (input.ceiling !== 'standard' && input.ceiling !== 'high') {
+  if (ceiling !== 'standard' && ceiling !== 'high') {
     throw new Error('Ceiling must be either standard or high');
   }
 
   // 1. Gallons: Math.ceil((sqft * coats) / paintCoverage)
-  const gallons = Math.ceil((input.sqft * input.coats) / config.paintCoverage);
+  const gallons = Math.ceil((sqft * coats) / config.paintCoverage);
 
   // 2. Materials: (gallons * paintCostPerGallon) * (1 + sundriesMarkup)
   const materials = (gallons * config.paintCostPerGallon) * (1 + config.sundriesMarkup);
 
   // 3. Labor Hours: (sqft / productionRate) + (doors * doorLaborAllowance)
-  const laborHours = (input.sqft / config.productionRate) + (input.doors * config.doorLaborAllowance);
+  const laborHours = (sqft / config.productionRate) + (doors * config.doorLaborAllowance);
 
   // 4. Labor Cost: laborHours * hourlyLaborRate
   const laborCost = laborHours * config.hourlyLaborRate;
@@ -30,7 +35,7 @@ export function calculateQuote(input: QuoteInput, config: PricingConfig): QuoteC
   const subtotal = materials + laborCost + config.fixedOverhead;
 
   // 6. Ceiling Multiplier
-  const ceilingMultiplier = input.ceiling === 'high'
+  const ceilingMultiplier = ceiling === 'high'
     ? config.highCeilingMultiplier
     : config.standardCeilingMultiplier;
 
@@ -65,10 +70,10 @@ export function calculateQuote(input: QuoteInput, config: PricingConfig): QuoteC
     quoteLow,
     quoteHigh,
     breakdown: {
-      sqft: input.sqft,
-      coats: input.coats,
-      doors: input.doors,
-      ceiling: input.ceiling,
+      sqft,
+      coats,
+      doors,
+      ceiling,
       gallons,
       laborHours: Math.round(laborHours * 10) / 10,
     },

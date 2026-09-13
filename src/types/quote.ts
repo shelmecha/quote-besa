@@ -1,6 +1,20 @@
 export type CeilingHeight = 'standard' | 'high';
 export type CoatCount = 1 | 2;
 export type ServiceType = 'interior' | 'exterior';
+export type HomeStories = 1 | 2;
+export type SidingType = 'wood' | 'stucco' | 'vinyl' | 'other';
+
+export interface SidingOption {
+  id: SidingType;
+  label: string;
+}
+
+export const SIDING_OPTIONS: SidingOption[] = [
+  { id: 'wood', label: 'Wood' },
+  { id: 'stucco', label: 'Stucco' },
+  { id: 'vinyl', label: 'Vinyl' },
+  { id: 'other', label: 'Other' },
+];
 
 export interface PricingConfig {
   clientSlug: string;
@@ -23,10 +37,16 @@ export interface PricingConfig {
 export interface QuoteInput {
   clientSlug: string;
   service: ServiceType;
-  sqft: number;
-  ceiling: CeilingHeight;
-  doors: number;
-  coats: CoatCount;
+  // Interior fields
+  sqft?: number;
+  ceiling?: CeilingHeight;
+  doors?: number;
+  coats?: CoatCount;
+  // Exterior fields
+  home_stories?: HomeStories;
+  home_sqft?: number;
+  siding_type?: SidingType;
+  // Contact details
   fullName: string;
   phone: string;
   email: string;
@@ -86,18 +106,28 @@ export interface QuoteSubmission {
   id: string;
   clientSlug: string;
   service: ServiceType;
-  sqft: number;
-  ceiling: CeilingHeight;
-  doors: number;
-  coats: CoatCount;
+  quote_type?: 'instant' | 'manual';
+  pricing_mode?: 'instant_calculation' | 'manual_quote';
+
+  // Interior fields
+  sqft?: number;
+  ceiling?: CeilingHeight;
+  doors?: number;
+  coats?: CoatCount;
+  exactCalculatedQuote?: number | null;
+  displayLow?: number | null;
+  displayHigh?: number | null;
+  pricing_snapshot?: PricingSnapshot | null;
+
+  // Exterior fields
+  home_stories?: HomeStories;
+  home_sqft?: number;
+  siding_type?: SidingType;
+
   fullName: string;
   phone: string;
   email: string;
-  exactCalculatedQuote: number;
-  displayLow: number;
-  displayHigh: number;
-  inputPayload: QuoteInput;
-  pricing_snapshot: PricingSnapshot;
-  submissionSource?: 'calculate_click' | 'final_request_click';
+  inputPayload?: QuoteInput | Record<string, unknown>;
+  submissionSource?: string;
   createdAt: string;
 }
